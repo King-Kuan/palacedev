@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { generateProject, fixProject, runAgentLoop } from '@/lib/claude'
+import { chat, fixProject, runAgentLoop } from '@/lib/claude'
 import { getProject, saveProject, updateProject, updateTask } from '@/lib/db'
 import { Timestamp } from 'firebase/firestore'
 
@@ -10,20 +10,19 @@ export async function POST(req: NextRequest) {
     taskId = body.taskId
     const { idea, type, agentMode, maxIterations, projectId } = body
 
-    // Mark running
     await updateTask(taskId, {
       status: 'running',
       startedAt: Timestamp.now(),
       logs: ['[Queue] Task started'],
     })
 
-    let result: any
     const taskLogs: string[] = ['[Queue] Task started']
-
     const addLog = async (msg: string) => {
       taskLogs.push(msg)
       await updateTask(taskId, { logs: taskLogs })
     }
+
+    let result: any
 
     if (agentMode) {
       await addLog('[Agent] Agent mode enabled')
@@ -36,11 +35,15 @@ export async function POST(req: NextRequest) {
       await addLog('[Fix] Fix applied')
     } else {
       await addLog('[Generate] Generating project')
-      result = await generateProject(idea)
+      const chatResult = await chat([{
+        role: 'user',
+        content: `Build this project completely now. JSON only, no questions: ${idea}`,
+      }])
+      if (chatResult.type !== 'project') throw new Error('AI did not generate a project')
+      result = chatResult.project
       await addLog(`[Generate] Generated ${result.files.length} files`)
     }
 
-    // Save result project
     const newProjectId = await saveProject({
       name: result.projectName,
       description: result.description,
@@ -51,8 +54,7 @@ export async function POST(req: NextRequest) {
       pinned: false,
     })
 
-    await addLog(`[Done] Project saved: ${newProjectId}`)
-
+    await addLog(`[Done] Saved: ${newProjectId}`)
     await updateTask(taskId, {
       status: 'done',
       completedAt: Timestamp.now(),
