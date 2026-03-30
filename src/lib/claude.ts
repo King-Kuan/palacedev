@@ -51,6 +51,9 @@ Respond ONLY with JSON:
 }`
 
 async function callClaude(messages: any[], system: string): Promise<any> {
+  if (!process.env.ANTHROPIC_API_KEY) {
+    throw new Error('ANTHROPIC_API_KEY is not set in environment variables')
+  }
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -65,7 +68,11 @@ async function callClaude(messages: any[], system: string): Promise<any> {
       messages,
     }),
   })
-  if (!res.ok) throw new Error(`Claude API error: ${res.status}`)
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    const msg = body?.error?.message || `HTTP ${res.status}`
+    throw new Error(`Claude API: ${msg}`)
+  }
   const data = await res.json()
   const raw = data.content.map((b: any) => b.text || '').join('')
   const clean = raw.replace(/^```[a-z]*\n?/gm, '').replace(/^```$/gm, '').trim()
